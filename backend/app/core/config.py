@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000"
     # A repeat check-in for the same member inside this window returns the existing record.
     checkin_dedupe_minutes: int = 30
+    # "Explore the demo": each visitor gets a private sandbox gym with sample data.
+    demo_enabled: bool = True
+    demo_ttl_hours: int = 24
+    demo_max_active: int = 200
 
     @property
     def cors_origin_list(self) -> list[str]:

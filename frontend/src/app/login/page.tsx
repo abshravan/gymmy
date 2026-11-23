@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { AuthLayout, FormError } from "@/components/app/auth-layout";
+import { DemoButton } from "@/components/app/demo-button";
 import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
 import { useAuth } from "@/lib/auth";
@@ -40,13 +41,14 @@ export default function LoginPage() {
         <Button type="submit" size="lg" className="mt-1 w-full" isLoading={busy} showTextWhileLoading>
           Sign in
         </Button>
-        <p className="mt-3 text-center text-sm text-tertiary">
-          New gym?{" "}
-          <Link href="/signup" className="font-semibold text-brand-secondary hover:text-brand-secondary_hover">
-            Create your workspace
-          </Link>
-        </p>
       </form>
+      <DemoButton className="mt-6" />
+      <p className="mt-6 text-center text-sm text-tertiary">
+        New gym?{" "}
+        <Link href="/signup" className="font-semibold text-brand-secondary hover:text-brand-secondary_hover">
+          Create your workspace
+        </Link>
+      </p>
     </AuthLayout>
   );
 }

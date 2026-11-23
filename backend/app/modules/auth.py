@@ -55,6 +55,8 @@ class MeOut(BaseModel):
     email: str
     role: str
     is_platform_admin: bool
+    is_demo: bool = False
+    demo_expires_at: datetime | None = None
     organization_id: uuid.UUID | None
     organization_name: str | None
     timezone: str | None
@@ -165,6 +167,8 @@ def me(user: CurrentUser, db: DB):
         email=user.email,
         role=user.role,
         is_platform_admin=user.is_platform_admin,
+        is_demo=bool(org and org.is_demo),
+        demo_expires_at=org.demo_expires_at if org else None,
         organization_id=user.organization_id,
         organization_name=org.name if org else None,
         timezone=org.timezone if org else None,

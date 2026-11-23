@@ -6,6 +6,7 @@ from app.modules import (
     attendance,
     audit_logs,
     auth,
+    demo,
     members,
     organizations,
     payments,
@@ -30,7 +31,7 @@ app.add_middleware(
 )
 
 api = APIRouter(prefix="/api/v1")
-for module in (auth, organizations, staff, members, plans, subscriptions, payments,
+for module in (auth, demo, organizations, staff, members, plans, subscriptions, payments,
                attendance, reports, audit_logs, platform):
     api.include_router(module.router)
 app.include_router(api)

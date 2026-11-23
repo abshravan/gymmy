@@ -12,6 +12,7 @@ import { useAuth } from "@/lib/auth";
 import { cx } from "@/utils/cx";
 import { CommandMenuProvider, initials, useCommandMenu } from "./command-menu";
 import { ConfirmProvider } from "./confirm";
+import { DemoBar } from "./demo-bar";
 import { Logo } from "./logo";
 import { NAV } from "./nav";
 import { ThemeSwitch } from "./theme-switch";
@@ -195,9 +196,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </aside>
           <MobileHeader />
           <main className="min-h-dvh lg:py-2 lg:pr-2">
+            <div className="lg:mb-2"><DemoBar /></div>
             <div className="min-h-[calc(100dvh-16px)] bg-primary lg:rounded-xl lg:shadow-xs lg:ring-1 lg:ring-secondary">
               <motion.div
-                key={path}
+                key={`${me.id}:${path}`}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ type: "spring", stiffness: 360, damping: 34 }}

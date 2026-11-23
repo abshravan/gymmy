@@ -10,8 +10,12 @@ interface AuthState {
   login: (email: string, password: string) => Promise<void>;
   signup: (body: Record<string, string>) => Promise<void>;
   logout: () => Promise<void>;
+  startDemo: (role?: DemoRole) => Promise<void>;
+  switchDemoRole: (role: DemoRole) => Promise<void>;
   can: (perm: string) => boolean;
 }
+
+export type DemoRole = "owner" | "manager" | "receptionist" | "trainer";
 
 const AuthContext = createContext<AuthState | null>(null);
 
@@ -52,6 +56,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await loadMe();
   };
 
+  const startDemo = async (role: DemoRole = "owner") => {
+    const t = await api<{ access_token: string; refresh_token: string }>("/auth/demo", { body: { role } });
+    tokens.set(t.access_token, t.refresh_token);
+    await loadMe();
+  };
+
+  const switchDemoRole = async (role: DemoRole) => {
+    const t = await api<{ access_token: string; refresh_token: string }>("/auth/demo/switch", { body: { role } });
+    tokens.set(t.access_token, t.refresh_token);
+    await loadMe();
+  };
+
   const logout = async () => {
     const rt = tokens.refresh;
     if (rt) await api("/auth/logout", { body: { refresh_token: rt } }).catch(() => undefined);
@@ -62,7 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const can = (perm: string) => !!me?.permissions.includes(perm);
 
   return (
-    <AuthContext.Provider value={{ me, loading, login, signup, logout, can }}>
+    <AuthContext.Provider value={{ me, loading, login, signup, logout, can, startDemo, switchDemoRole }}>
       {children}
     </AuthContext.Provider>
   );

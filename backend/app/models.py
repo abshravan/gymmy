@@ -59,6 +59,9 @@ class Organization(Base):
     status: Mapped[str] = mapped_column(String(20), default="active")
     member_seq: Mapped[int] = mapped_column(Integer, default=0)
     receipt_seq: Mapped[int] = mapped_column(Integer, default=0)
+    # Sandbox gyms created by "Explore the demo"; deleted after demo_expires_at.
+    is_demo: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    demo_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = _created()
 
 

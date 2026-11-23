@@ -6,6 +6,8 @@ export interface Me {
   email: string;
   role: string;
   is_platform_admin: boolean;
+  is_demo: boolean;
+  demo_expires_at: string | null;
   organization_id: string | null;
   organization_name: string | null;
   timezone: string | null;

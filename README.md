@@ -30,6 +30,24 @@ Getting Started Guide* (MVP, milestones 1–4).
 - **Feedback:** toasts for every action, skeleton loaders, empty states with next steps, confirm dialogs instead of browser pop-ups, inline duplicate-phone warnings, unsaved-changes bar in settings.
 - **Light, dark and system themes**, responsive down to phone width with a slide-in menu.
 
+## View demo
+
+The login and signup pages have a **View demo** button. Each click creates a private sandbox gym
+("Pulse Fitness Studio") with realistic sample data — about 60 members covering every state
+(active, expiring this week, expired, frozen, starting soon, suspended, partly paid, cancelled with a
+refund), six plans, two branches, four staff and six weeks of payments and check-ins.
+
+Inside the demo, a bar at the top lets you:
+
+- **Switch role** between Owner, Manager, Front desk and Trainer to see what each one can do.
+- Open **Things to try**: guided steps with real member numbers (check someone in, see a refused
+  check-in, sell a plan, unfreeze a membership, chase dues, search).
+- **Reset** to a fresh gym at any time.
+
+Sandboxes are isolated from real gyms and from each other, and are deleted after 24 hours. Configure
+with `DEMO_ENABLED`, `DEMO_TTL_HOURS` and `DEMO_MAX_ACTIVE` (see `backend/.env.example`); turn it off in
+production if you don't want public sandboxes.
+
 ## Run it locally
 
 With Docker:
@@ -44,7 +62,7 @@ Then open http://localhost:3000 and create a gym, or load demo data:
 docker compose exec api python -m app.cli seed-demo
 ```
 
-Demo logins: `owner@demo.gym` and `desk@demo.gym`, password `demo-pass-1`.
+Demo logins: `owner@demo.gym`, `manager@demo.gym`, `receptionist@demo.gym` and `trainer@demo.gym`, password `demo-pass-1`. (Or just click **View demo** on the login page.)
 
 Without Docker (needs Python 3.12+, Node 22, PostgreSQL 16):
 
