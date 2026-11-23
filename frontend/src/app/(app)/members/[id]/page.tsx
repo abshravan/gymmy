@@ -1,12 +1,29 @@
 "use client";
 
-import Link from "next/link";
+import {
+  CalendarCheck01, CheckCircle, CreditCard02, Edit05, Mail01, Phone, Printer, QrCode01, RefreshCw05,
+  ReceiptCheck, Snowflake01, Ticket01, Trash01, Wallet02, XCircle,
+} from "@untitledui/icons";
+import { AnimatePresence, motion } from "motion/react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { Suspense, useEffect, useState } from "react";
-import { PaymentForm, ReasonForm, SellForm } from "@/components/forms";
-import { MemberForm } from "@/components/MemberForm";
-import { Badge, Empty, Modal, PageHeader } from "@/components/ui";
+import { toast } from "sonner";
+import { AppModal } from "@/components/app/app-modal";
+import { initials } from "@/components/app/command-menu";
+import { useConfirm } from "@/components/app/confirm";
+import { Empty } from "@/components/app/empty";
+import { PaymentForm, ReasonForm, SellForm } from "@/components/app/forms";
+import { MemberForm } from "@/components/app/member-form";
+import { Section } from "@/components/app/page-header";
+import { Pager } from "@/components/app/pager";
+import { Skeleton } from "@/components/app/skeleton";
+import { StatusBadge } from "@/components/app/status-badge";
+import { TabList, Tabs } from "@/components/application/tabs/tabs";
+import { Avatar } from "@/components/base/avatar/avatar";
+import { Button } from "@/components/base/buttons/button";
+import { Dropdown } from "@/components/base/dropdown/dropdown";
+import { ProgressBarBase } from "@/components/base/progress-indicators/progress-indicators";
 import { api, qs } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { date, dateTime, money } from "@/lib/format";
@@ -18,26 +35,82 @@ type Dialog =
   | { kind: "renew"; sub: SubscriptionSummary }
   | { kind: "pay"; sub: SubscriptionSummary | null }
   | { kind: "freeze"; sub: SubscriptionSummary }
-  | { kind: "unfreeze"; sub: SubscriptionSummary }
   | { kind: "cancel"; sub: SubscriptionSummary }
   | { kind: "refund"; payment: Payment; refundable: number }
   | { kind: "edit" }
   | { kind: "qr" }
   | null;
 
+function daysBetween(a: string, b: string) {
+  return Math.round((new Date(`${b}T00:00:00`).getTime() - new Date(`${a}T00:00:00`).getTime()) / 86400000);
+}
+
+function MembershipCard({ sub, currency, totalDue, actions }: { sub: SubscriptionSummary | null; currency: string; totalDue: string; actions: React.ReactNode }) {
+  if (!sub) {
+    return (
+      <Section title="Membership">
+        <Empty icon={Ticket01} title="No membership yet" description="Sell a plan to let this member check in.">{actions}</Empty>
+      </Section>
+    );
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  const total = daysBetween(sub.start_date, sub.end_date) + 1;
+  const used = Math.min(total, Math.max(0, daysBetween(sub.start_date, today) + 1));
+  const left = Math.max(0, daysBetween(today, sub.end_date));
+  const paidPct = Number(sub.price) > 0 ? (Number(sub.amount_paid) / Number(sub.price)) * 100 : 100;
+  return (
+    <Section title="Current membership" actions={actions}>
+      <div className="grid gap-6 p-4 md:grid-cols-2 md:p-6">
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xl font-semibold text-primary">{sub.plan_name}</span>
+            <StatusBadge value={sub.status} />
+          </div>
+          <p className="text-sm text-tertiary">{date(sub.start_date)} → {date(sub.end_date)}</p>
+          <div>
+            <div className="mb-2 flex justify-between text-sm">
+              <span className="text-secondary">{sub.status === "upcoming" ? "Starts soon" : `${left} days left`}</span>
+              <span className="text-tertiary">{used}/{total} days</span>
+            </div>
+            <ProgressBarBase value={(used / total) * 100} />
+          </div>
+        </div>
+        <div className="flex flex-col gap-3 rounded-xl bg-secondary p-4 ring-1 ring-secondary ring-inset">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-tertiary">Price{Number(sub.discount) > 0 && ` (−${money(sub.discount, currency)})`}</span>
+            <span className="font-semibold text-primary">{money(sub.price, currency)}</span>
+          </div>
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-tertiary">Paid</span>
+            <span className="font-semibold text-primary">{money(sub.amount_paid, currency)}</span>
+          </div>
+          <ProgressBarBase value={paidPct} progressClassName={paidPct >= 100 ? "bg-fg-success-secondary" : undefined} />
+          {Number(totalDue) > 0 ? (
+            <p className="text-sm font-semibold text-error-primary">{money(totalDue, currency)} due</p>
+          ) : (
+            <p className="flex items-center gap-1.5 text-sm font-semibold text-success-primary"><CheckCircle className="size-4" /> Fully paid</p>
+          )}
+        </div>
+      </div>
+    </Section>
+  );
+}
+
 function MemberPage() {
   const { id } = useParams<{ id: string }>();
   const params = useSearchParams();
   const router = useRouter();
+  const confirm = useConfirm();
   const { can, me } = useAuth();
   const c = me?.currency ?? "INR";
-  const { data: m, error, reload: reloadMember, setData } = useApi<MemberDetail>(`/members/${id}`);
-  const { data: payments, reload: reloadPayments } = useApi<Page<Payment>>(
-    can("payments:read") ? `/payments${qs({ member_id: id, page_size: 50 })}` : null,
-  );
-  const { data: visits, reload: reloadVisits } = useApi<Page<AttendanceRecord>>(`/members/${id}/attendance${qs({ page_size: 10 })}`);
+  const member = useApi<MemberDetail>(`/members/${id}`);
+  const [payPage, setPayPage] = useState(1);
+  const [visitPage, setVisitPage] = useState(1);
+  const payments = useApi<Page<Payment>>(can("payments:read") ? `/payments${qs({ member_id: id, page: payPage, page_size: 10 })}` : null);
+  const visits = useApi<Page<AttendanceRecord>>(`/members/${id}/attendance${qs({ page: visitPage, page_size: 10 })}`);
   const [dialog, setDialog] = useState<Dialog>(null);
-  const [flash, setFlash] = useState<string | null>(null);
+  const [tab, setTab] = useState<string>("memberships");
+  const m = member.data;
 
   useEffect(() => {
     if (params.get("sell") === "1" && can("subscriptions:write")) {
@@ -46,231 +119,326 @@ function MemberPage() {
     }
   }, [params, id, router, can]);
 
-  const done = (message: string) => {
+  const refresh = () => {
     setDialog(null);
-    setFlash(message);
-    reloadMember();
-    reloadPayments();
-    reloadVisits();
+    member.reload();
+    payments.reload();
+    visits.reload();
   };
 
   async function checkIn() {
-    const r = await api<{ allowed: boolean; message: string }>("/attendance/check-in", { body: { member_id: id } });
-    setFlash(r.allowed ? r.message : `Not allowed: ${r.message}`);
-    reloadVisits();
+    const r = await api<{ allowed: boolean; message: string; code: string }>("/attendance/check-in", { body: { member_id: id } });
+    if (r.allowed) toast.success(r.code === "duplicate" ? "Already checked in" : "Checked in", { description: r.message });
+    else toast.error("Check-in refused", { description: r.message });
+    visits.reload();
   }
 
-  if (error) return <div className="alert error">{error}</div>;
-  if (!m) return <div className="empty">Loading…</div>;
+  async function unfreeze(sub: SubscriptionSummary) {
+    if (!(await confirm({ title: "Unfreeze membership?", description: "Access resumes today and the end date is pushed out by the days frozen, up to the plan's allowance.", confirmLabel: "Unfreeze" }))) return;
+    try {
+      const s = await api<SubscriptionSummary>(`/subscriptions/${sub.id}/unfreeze`, { body: {} });
+      toast.success("Membership resumed", { description: `Now ends ${date(s.end_date)}` });
+      refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    }
+  }
 
-  const refundedOf = (pid: string) =>
-    (payments?.items ?? []).filter((p) => p.refund_of_id === pid).reduce((s, p) => s + Number(p.amount), 0);
+  if (member.error) return <div className="rounded-lg bg-error-primary p-4 text-sm text-error-primary">{member.error}</div>;
+  if (!m) {
+    return (
+      <div className="flex flex-col gap-6">
+        <div className="flex items-center gap-4"><Skeleton className="size-16 rounded-full" /><div className="flex flex-col gap-2"><Skeleton className="h-6 w-56" /><Skeleton className="w-40" /></div></div>
+        <Skeleton className="h-48 rounded-xl" />
+        <Skeleton className="h-64 rounded-xl" />
+      </div>
+    );
+  }
+
   const cur = m.current_subscription;
+  const refundedOf = (pid: string) => (payments.data?.items ?? []).filter((p) => p.refund_of_id === pid).reduce((s, p) => s + Number(p.amount), 0);
 
   return (
     <>
-      <PageHeader
-        title={m.full_name}
-        subtitle={<>{m.member_number} · {m.phone} · <Badge value={m.membership_status} />{m.status !== "active" && <> <Badge value={m.status} /></>}</>}
-        actions={
-          <>
-            {can("attendance:checkin") && <button className="btn" onClick={checkIn}>Check in</button>}
-            {can("subscriptions:write") && <button className="btn ghost" onClick={() => setDialog({ kind: "sell" })}>Sell membership</button>}
-            {can("payments:create") && <button className="btn ghost" onClick={() => setDialog({ kind: "pay", sub: cur && Number(cur.balance_due) > 0 ? cur : null })}>Take payment</button>}
-            <button className="btn ghost" onClick={() => setDialog({ kind: "qr" })}>QR pass</button>
-            {can("members:write") && <button className="btn ghost" onClick={() => setDialog({ kind: "edit" })}>Edit</button>}
-          </>
-        }
-      />
-      {flash && <div className="alert success" style={{ marginBottom: "1rem" }}>{flash}</div>}
-
-      <div className="grid two">
-        <section className="card">
-          <h2>Current membership</h2>
-          {cur ? (
-            <dl className="dl">
-              <dt>Plan</dt><dd>{cur.plan_name} <Badge value={cur.status} /></dd>
-              <dt>Period</dt><dd>{date(cur.start_date)} → {date(cur.end_date)}</dd>
-              <dt>Price</dt><dd>{money(cur.price, c)}{Number(cur.discount) > 0 && <span className="muted"> (discount {money(cur.discount, c)})</span>}</dd>
-              <dt>Paid</dt><dd>{money(cur.amount_paid, c)} <Badge value={cur.payment_status} /></dd>
-              {Number(m.total_balance_due) > 0 && <><dt>Total due</dt><dd style={{ color: "var(--bad)", fontWeight: 600 }}>{money(m.total_balance_due, c)}</dd></>}
-            </dl>
-          ) : (
-            <Empty>No membership yet.</Empty>
-          )}
-        </section>
-        <section className="card">
-          <h2>Profile</h2>
-          <dl className="dl">
-            <dt>Email</dt><dd>{m.email ?? "—"}</dd>
-            <dt>Date of birth</dt><dd>{date(m.date_of_birth)}</dd>
-            <dt>Gender</dt><dd>{m.gender ?? "—"}</dd>
-            <dt>Address</dt><dd>{m.address ?? "—"}</dd>
-            <dt>Emergency</dt><dd>{m.emergency_contact_name ? `${m.emergency_contact_name} · ${m.emergency_contact_phone ?? ""}` : "—"}</dd>
-            <dt>Member since</dt><dd>{date(m.created_at)}</dd>
-            {m.notes && <><dt>Notes</dt><dd>{m.notes}</dd></>}
-          </dl>
-        </section>
-      </div>
-
-      <section className="card flush" style={{ marginTop: "1rem" }}>
-        <div className="card-head" style={{ padding: "1rem 1.25rem 0" }}><h2>Membership history</h2></div>
-        {m.subscriptions.length === 0 ? <Empty>No memberships.</Empty> : (
-          <div className="table-wrap">
-            <table>
-              <thead><tr><th>Plan</th><th>Start</th><th>End</th><th>Status</th><th className="num">Price</th><th className="num">Due</th><th></th></tr></thead>
-              <tbody>
-                {m.subscriptions.map((s) => (
-                  <tr key={s.id}>
-                    <td>{s.plan_name}</td>
-                    <td>{date(s.start_date)}</td>
-                    <td>{date(s.end_date)}</td>
-                    <td><Badge value={s.status} /> {s.status !== "cancelled" && <Badge value={s.payment_status} />}</td>
-                    <td className="num">{money(s.price, c)}</td>
-                    <td className="num">{Number(s.balance_due) > 0 ? money(s.balance_due, c) : "—"}</td>
-                    <td className="right">
-                      <div className="row gap" style={{ justifyContent: "flex-end" }}>
-                        {s.status !== "cancelled" && Number(s.balance_due) > 0 && can("payments:create") && (
-                          <button className="btn small" onClick={() => setDialog({ kind: "pay", sub: s })}>Pay</button>
-                        )}
-                        {s.status !== "cancelled" && can("subscriptions:write") && (
-                          <button className="btn small ghost" onClick={() => setDialog({ kind: "renew", sub: s })}>Renew</button>
-                        )}
-                        {s.status === "active" && can("subscriptions:write") && (
-                          <button className="btn small ghost" onClick={() => setDialog({ kind: "freeze", sub: s })}>Freeze</button>
-                        )}
-                        {s.status === "frozen" && can("subscriptions:write") && (
-                          <button className="btn small ghost" onClick={() => setDialog({ kind: "unfreeze", sub: s })}>Unfreeze</button>
-                        )}
-                        {s.status !== "cancelled" && can("subscriptions:cancel") && (
-                          <button className="btn small ghost" onClick={() => setDialog({ kind: "cancel", sub: s })}>Cancel</button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-      <div className="grid two" style={{ marginTop: "1rem" }}>
-        {can("payments:read") && (
-          <section className="card flush">
-            <div className="card-head" style={{ padding: "1rem 1.25rem 0" }}><h2>Payments</h2></div>
-            {payments?.items.length === 0 ? <Empty>No payments.</Empty> : (
-              <div className="table-wrap">
-                <table>
-                  <thead><tr><th>Date</th><th>Receipt</th><th>Method</th><th className="num">Amount</th><th></th></tr></thead>
-                  <tbody>
-                    {payments?.items.map((p) => {
-                      const refundable = p.kind === "payment" ? Number(p.amount) - refundedOf(p.id) : 0;
-                      return (
-                        <tr key={p.id}>
-                          <td>{dateTime(p.paid_at, me?.timezone)}</td>
-                          <td>{p.receipt?.number ?? <Badge value="refund" />}</td>
-                          <td>{p.method.replace("_", " ")}</td>
-                          <td className="num" style={p.kind === "refund" ? { color: "var(--bad)" } : undefined}>
-                            {p.kind === "refund" ? "−" : ""}{money(p.amount, c)}
-                          </td>
-                          <td className="right">
-                            {refundable > 0 && can("payments:refund") && (
-                              <button className="btn small ghost" onClick={() => setDialog({ kind: "refund", payment: p, refundable })}>Refund</button>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-        )}
-        <section className="card flush">
-          <div className="card-head" style={{ padding: "1rem 1.25rem 0" }}>
-            <h2>Recent visits {visits && <span className="muted">({visits.total})</span>}</h2>
-          </div>
-          {visits?.items.length === 0 ? <Empty>No visits yet.</Empty> : (
-            <div className="table-wrap">
-              <table>
-                <thead><tr><th>Checked in</th><th>Method</th></tr></thead>
-                <tbody>
-                  {visits?.items.map((a) => (
-                    <tr key={a.id}>
-                      <td>{dateTime(a.check_in_at, me?.timezone)}</td>
-                      <td>{a.method.replace("_", " ")} {a.override_reason && <Badge value="partial" label="override" />}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+      <header className="mb-8 flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+        <div className="flex items-center gap-4">
+          <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: "spring", stiffness: 300, damping: 20 }}>
+            <Avatar size="2xl" initials={initials(m.full_name)} alt={m.full_name} />
+          </motion.div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-display-xs font-semibold text-primary">{m.full_name}</h1>
+              <StatusBadge value={m.membership_status} size="md" />
+              {m.status !== "active" && <StatusBadge value={m.status} size="md" />}
             </div>
+            <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-tertiary">
+              <span className="font-medium text-secondary">{m.member_number}</span>
+              <a href={`tel:${m.phone}`} className="flex items-center gap-1 hover:text-secondary"><Phone className="size-4" />{m.phone}</a>
+              {m.email && <a href={`mailto:${m.email}`} className="flex items-center gap-1 hover:text-secondary"><Mail01 className="size-4" />{m.email}</a>}
+              <span>Member since {date(m.created_at)}</span>
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          {can("payments:create") && Number(m.total_balance_due) > 0 && (
+            <Button color="secondary" iconLeading={Wallet02} onClick={() => setDialog({ kind: "pay", sub: cur && Number(cur.balance_due) > 0 ? cur : m.subscriptions.find((s) => Number(s.balance_due) > 0 && s.status !== "cancelled") ?? null })}>
+              Collect {money(m.total_balance_due, c)}
+            </Button>
           )}
-        </section>
+          {can("attendance:checkin") && <Button iconLeading={CalendarCheck01} onClick={checkIn}>Check in</Button>}
+          <Dropdown.Root>
+            <Dropdown.DotsButton />
+            <Dropdown.Popover className="w-56">
+              <Dropdown.Menu onAction={(key) => {
+                if (key === "qr") setDialog({ kind: "qr" });
+                if (key === "edit") setDialog({ kind: "edit" });
+                if (key === "sell") setDialog({ kind: "sell" });
+                if (key === "pay") setDialog({ kind: "pay", sub: null });
+              }}>
+                <Dropdown.Item id="qr" icon={QrCode01} label="Show QR pass" />
+                {can("members:write") && <Dropdown.Item id="edit" icon={Edit05} label="Edit details" />}
+                {can("subscriptions:write") && <Dropdown.Item id="sell" icon={Ticket01} label="Sell membership" />}
+                {can("payments:create") && <Dropdown.Item id="pay" icon={CreditCard02} label="Record other payment" />}
+              </Dropdown.Menu>
+            </Dropdown.Popover>
+          </Dropdown.Root>
+        </div>
+      </header>
+
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_320px]">
+        <div className="flex min-w-0 flex-col gap-6">
+          <MembershipCard
+            sub={cur}
+            currency={c}
+            totalDue={m.total_balance_due}
+            actions={can("subscriptions:write") && (
+              cur && cur.status !== "cancelled"
+                ? <Button size="sm" iconLeading={RefreshCw05} onClick={() => setDialog({ kind: "renew", sub: cur })}>Renew</Button>
+                : <Button size="sm" iconLeading={Ticket01} onClick={() => setDialog({ kind: "sell" })}>Sell membership</Button>
+            )}
+          />
+
+          <Tabs selectedKey={tab} onSelectionChange={(k) => setTab(String(k))}>
+            <TabList
+              type="underline"
+              size="md"
+              items={[
+                { id: "memberships", label: "Memberships", badge: m.subscriptions.length || undefined },
+                ...(can("payments:read") ? [{ id: "payments", label: "Payments", badge: payments.data?.total || undefined }] : []),
+                { id: "visits", label: "Visits", badge: visits.data?.total || undefined },
+              ]}
+            />
+          </Tabs>
+
+          <AnimatePresence mode="wait">
+            <motion.div key={tab} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18 }}>
+              {tab === "memberships" && (
+                <Section>
+                  {m.subscriptions.length === 0 ? (
+                    <Empty icon={Ticket01} title="No memberships" description="Their membership history will show here." />
+                  ) : (
+                    <ul className="stagger divide-y divide-secondary">
+                      {m.subscriptions.map((s, i) => (
+                        <li key={s.id} style={{ "--i": i } as React.CSSProperties} className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center md:px-6">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm font-semibold text-primary">{s.plan_name}</span>
+                              <StatusBadge value={s.status} />
+                              {s.status !== "cancelled" && <StatusBadge value={s.payment_status} />}
+                            </div>
+                            <p className="mt-0.5 text-sm text-tertiary">
+                              {date(s.start_date)} → {date(s.end_date)} · {money(s.price, c)}
+                              {Number(s.balance_due) > 0 && s.status !== "cancelled" && <span className="font-medium text-error-primary"> · {money(s.balance_due, c)} due</span>}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {s.status !== "cancelled" && Number(s.balance_due) > 0 && can("payments:create") && (
+                              <Button size="sm" onClick={() => setDialog({ kind: "pay", sub: s })}>Collect</Button>
+                            )}
+                            {s.status !== "cancelled" && can("subscriptions:write") && (
+                              <Button size="sm" color="secondary" onClick={() => setDialog({ kind: "renew", sub: s })}>Renew</Button>
+                            )}
+                            {s.status === "active" && can("subscriptions:write") && (
+                              <Button size="sm" color="secondary" iconLeading={Snowflake01} onClick={() => setDialog({ kind: "freeze", sub: s })}>Freeze</Button>
+                            )}
+                            {s.status === "frozen" && can("subscriptions:write") && (
+                              <Button size="sm" color="secondary" onClick={() => unfreeze(s)}>Unfreeze</Button>
+                            )}
+                            {s.status !== "cancelled" && can("subscriptions:cancel") && (
+                              <Button size="sm" color="tertiary-destructive" iconLeading={XCircle} onClick={() => setDialog({ kind: "cancel", sub: s })} aria-label="Cancel membership" />
+                            )}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </Section>
+              )}
+
+              {tab === "payments" && (
+                <Section>
+                  {!payments.data ? (
+                    <div className="flex flex-col gap-4 p-6">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-10" />)}</div>
+                  ) : payments.data.items.length === 0 ? (
+                    <Empty icon={ReceiptCheck} title="No payments" description="Payments and refunds will show here." />
+                  ) : (
+                    <>
+                      <ul className="stagger divide-y divide-secondary">
+                        {payments.data.items.map((p, i) => {
+                          const refundable = p.kind === "payment" ? Number(p.amount) - refundedOf(p.id) : 0;
+                          return (
+                            <li key={p.id} style={{ "--i": i } as React.CSSProperties} className="flex items-center gap-3 px-4 py-3 md:px-6">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-semibold text-primary">{p.receipt?.number ?? "Refund"}</span>
+                                  <StatusBadge value={p.method} />
+                                  {p.kind === "refund" && <StatusBadge value="refund" />}
+                                </div>
+                                <p className="truncate text-sm text-tertiary">{dateTime(p.paid_at, me?.timezone)}{(p.reference || p.notes) && ` · ${p.reference ?? p.notes}`}</p>
+                              </div>
+                              <span className={`text-md font-semibold tabular-nums ${p.kind === "refund" ? "text-error-primary" : "text-primary"}`}>
+                                {p.kind === "refund" ? "−" : ""}{money(p.amount, c)}
+                              </span>
+                              {refundable > 0 && can("payments:refund") && (
+                                <Button size="sm" color="tertiary" onClick={() => setDialog({ kind: "refund", payment: p, refundable })}>Refund</Button>
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                      <Pager page={payments.data.page} pageSize={payments.data.page_size} total={payments.data.total} onPage={setPayPage} />
+                    </>
+                  )}
+                </Section>
+              )}
+
+              {tab === "visits" && (
+                <Section>
+                  {!visits.data ? (
+                    <div className="flex flex-col gap-4 p-6">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-10" />)}</div>
+                  ) : visits.data.items.length === 0 ? (
+                    <Empty icon={CalendarCheck01} title="No visits yet" description="Check-ins will show here." />
+                  ) : (
+                    <>
+                      <ul className="stagger divide-y divide-secondary">
+                        {visits.data.items.map((a, i) => (
+                          <li key={a.id} style={{ "--i": i } as React.CSSProperties} className="flex items-center gap-3 px-4 py-3 md:px-6">
+                            <CalendarCheck01 className="size-5 text-fg-quaternary" />
+                            <span className="flex-1 text-sm text-primary">{dateTime(a.check_in_at, me?.timezone)}</span>
+                            <span className="text-sm text-tertiary capitalize">{a.method.replace("_", " ")}</span>
+                            {a.override_reason && <StatusBadge value="override" />}
+                          </li>
+                        ))}
+                      </ul>
+                      <Pager page={visits.data.page} pageSize={visits.data.page_size} total={visits.data.total} onPage={setVisitPage} />
+                    </>
+                  )}
+                </Section>
+              )}
+            </motion.div>
+          </AnimatePresence>
+        </div>
+
+        <aside className="flex flex-col gap-6">
+          <Section title="Details" actions={can("members:write") && <Button size="sm" color="tertiary" iconLeading={Edit05} onClick={() => setDialog({ kind: "edit" })}>Edit</Button>}>
+            <dl className="flex flex-col gap-4 p-4 text-sm md:p-6">
+              {[
+                ["Date of birth", date(m.date_of_birth)],
+                ["Gender", m.gender ?? "—"],
+                ["Address", m.address ?? "—"],
+                ["Emergency", m.emergency_contact_name ? `${m.emergency_contact_name}${m.emergency_contact_phone ? ` · ${m.emergency_contact_phone}` : ""}` : "—"],
+                ...(m.notes ? [["Notes", m.notes]] : []),
+              ].map(([k, v]) => (
+                <div key={k}>
+                  <dt className="text-tertiary">{k}</dt>
+                  <dd className="mt-0.5 font-medium text-primary">{v}</dd>
+                </div>
+              ))}
+            </dl>
+          </Section>
+          <Section title="QR pass">
+            <button className="group flex w-full flex-col items-center gap-3 p-6 outline-focus-ring focus-visible:outline-2" onClick={() => setDialog({ kind: "qr" })}>
+              <div className="rounded-xl bg-white p-3 shadow-xs ring-1 ring-secondary transition-transform group-hover:scale-[1.03]">
+                <QRCodeSVG value={m.qr_token} size={132} />
+              </div>
+              <span className="text-sm font-semibold text-brand-secondary">Open to print</span>
+            </button>
+          </Section>
+        </aside>
       </div>
 
-      <Modal open={dialog?.kind === "sell"} title="Sell membership" onClose={() => setDialog(null)}>
-        <SellForm memberId={m.id} onDone={() => done("Membership sold")} onCancel={() => setDialog(null)} />
-      </Modal>
-      <Modal open={dialog?.kind === "renew"} title="Renew membership" onClose={() => setDialog(null)}>
-        {dialog?.kind === "renew" && <SellForm memberId={m.id} renewFrom={dialog.sub} onDone={() => done("Membership renewed")} onCancel={() => setDialog(null)} />}
-      </Modal>
-      <Modal open={dialog?.kind === "pay"} title="Record payment" onClose={() => setDialog(null)}>
-        {dialog?.kind === "pay" && <PaymentForm memberId={m.id} subscription={dialog.sub} onDone={() => done("Payment recorded")} onCancel={() => setDialog(null)} />}
-      </Modal>
-      <Modal open={dialog?.kind === "freeze"} title="Freeze membership" onClose={() => setDialog(null)}>
+      <AppModal open={dialog?.kind === "sell"} onClose={() => setDialog(null)} title="Sell membership" description={`For ${m.full_name}`} icon={Ticket01} width="max-w-2xl">
+        <SellForm memberId={m.id} onDone={refresh} onCancel={() => setDialog(null)} />
+      </AppModal>
+      <AppModal open={dialog?.kind === "renew"} onClose={() => setDialog(null)} title="Renew membership" description={`For ${m.full_name}`} icon={RefreshCw05} width="max-w-2xl">
+        {dialog?.kind === "renew" && <SellForm memberId={m.id} renewFrom={dialog.sub} onDone={refresh} onCancel={() => setDialog(null)} />}
+      </AppModal>
+      <AppModal open={dialog?.kind === "pay"} onClose={() => setDialog(null)} title="Record payment" description={`From ${m.full_name}`} icon={Wallet02} tone="success">
+        {dialog?.kind === "pay" && <PaymentForm memberId={m.id} subscription={dialog.sub} onDone={refresh} onCancel={() => setDialog(null)} />}
+      </AppModal>
+      <AppModal open={dialog?.kind === "freeze"} onClose={() => setDialog(null)} title="Freeze membership" description="Check-in is blocked while frozen. Unfreezing extends the end date." icon={Snowflake01} tone="gray">
         {dialog?.kind === "freeze" && (
-          <ReasonForm label="Reason" submitLabel="Freeze" withDate="Freeze from" onCancel={() => setDialog(null)}
-            onSubmit={async (v) => { await api(`/subscriptions/${dialog.sub.id}/freeze`, { body: { start_date: v.date, reason: v.reason || null } }); done("Membership frozen"); }} />
+          <ReasonForm reasonLabel="Reason" submitLabel="Freeze" dateLabel="Freeze from" onCancel={() => setDialog(null)}
+            onSubmit={async (v) => {
+              await api(`/subscriptions/${dialog.sub.id}/freeze`, { body: { start_date: v.date, reason: v.reason || null } });
+              toast.success("Membership frozen");
+              refresh();
+            }} />
         )}
-      </Modal>
-      <Modal open={dialog?.kind === "unfreeze"} title="Unfreeze membership" onClose={() => setDialog(null)}>
-        {dialog?.kind === "unfreeze" && (
-          <form className="stack" onSubmit={async (e) => { e.preventDefault(); await api(`/subscriptions/${dialog.sub.id}/unfreeze`, { body: {} }); done("Membership resumed; end date extended"); }}>
-            <p>The end date will be pushed out by the days frozen, up to the plan&apos;s freeze allowance.</p>
-            <div className="actions"><button className="btn">Unfreeze today</button></div>
-          </form>
-        )}
-      </Modal>
-      <Modal open={dialog?.kind === "cancel"} title="Cancel membership" onClose={() => setDialog(null)}>
+      </AppModal>
+      <AppModal open={dialog?.kind === "cancel"} onClose={() => setDialog(null)} title="Cancel membership" description="Access ends immediately. Payments stay on record — issue refunds separately." icon={Trash01} tone="error">
         {dialog?.kind === "cancel" && (
-          <ReasonForm danger label="Reason (required)" submitLabel="Cancel membership" onCancel={() => setDialog(null)}
-            onSubmit={async (v) => { await api(`/subscriptions/${dialog.sub.id}/cancel`, { body: { reason: v.reason } }); done("Membership cancelled. Issue any refund from the payments list."); }} />
+          <ReasonForm destructive requireReason reasonLabel="Reason" submitLabel="Cancel membership" onCancel={() => setDialog(null)}
+            onSubmit={async (v) => {
+              await api(`/subscriptions/${dialog.sub.id}/cancel`, { body: { reason: v.reason } });
+              toast.success("Membership cancelled");
+              refresh();
+            }} />
         )}
-      </Modal>
-      <Modal open={dialog?.kind === "refund"} title="Refund payment" onClose={() => setDialog(null)}>
+      </AppModal>
+      <AppModal open={dialog?.kind === "refund"} onClose={() => setDialog(null)} title="Refund payment" description="A separate refund entry is recorded. The original payment is kept." icon={ReceiptCheck} tone="warning">
         {dialog?.kind === "refund" && (
-          <ReasonForm danger label="Reason (required)" submitLabel="Record refund" withAmount={money(dialog.refundable, c)} onCancel={() => setDialog(null)}
-            onSubmit={async (v) => { await api(`/payments/${dialog.payment.id}/refund`, { body: { reason: v.reason, amount: v.amount || null } }); done("Refund recorded"); }} />
+          <ReasonForm destructive requireReason reasonLabel="Reason" submitLabel="Record refund" refundable={money(dialog.refundable, c)} onCancel={() => setDialog(null)}
+            onSubmit={async (v) => {
+              await api(`/payments/${dialog.payment.id}/refund`, { body: { reason: v.reason, amount: v.amount || null } });
+              toast.success("Refund recorded");
+              refresh();
+            }} />
         )}
-      </Modal>
-      <Modal open={dialog?.kind === "edit"} title="Edit member" onClose={() => setDialog(null)}>
-        <MemberForm initial={m} onSaved={(nm) => { setData(nm); setDialog(null); setFlash("Saved"); }} onCancel={() => setDialog(null)} />
-      </Modal>
-      <Modal open={dialog?.kind === "qr"} title="Member QR pass" onClose={() => setDialog(null)}>
-        <div className="stack" style={{ textAlign: "center" }}>
-          <div className="qr"><QRCodeSVG value={m.qr_token} size={220} /></div>
-          <div><strong>{m.full_name}</strong><div className="muted">{m.member_number}</div></div>
-          <div className="actions" style={{ justifyContent: "center" }}>
-            <button className="btn ghost" onClick={() => window.print()}>Print</button>
+      </AppModal>
+      <AppModal open={dialog?.kind === "edit"} onClose={() => setDialog(null)} title="Edit member" icon={Edit05} width="max-w-3xl">
+        <MemberForm compact initial={m} onCancel={() => setDialog(null)}
+          onSaved={(nm) => { member.setData(nm); setDialog(null); toast.success("Changes saved"); }} />
+      </AppModal>
+      <AppModal open={dialog?.kind === "qr"} onClose={() => setDialog(null)} title="Member QR pass" description="Scan at the front desk to check in." icon={QrCode01} width="max-w-sm">
+        <div className="flex flex-col items-center gap-4">
+          <motion.div initial={{ rotateY: 90, opacity: 0 }} animate={{ rotateY: 0, opacity: 1 }} transition={{ type: "spring", stiffness: 200, damping: 20 }}
+            className="rounded-2xl bg-white p-4 shadow-md ring-1 ring-secondary">
+            <QRCodeSVG value={m.qr_token} size={220} />
+          </motion.div>
+          <div className="text-center">
+            <p className="text-lg font-semibold text-primary">{m.full_name}</p>
+            <p className="text-sm text-tertiary">{m.member_number}</p>
+          </div>
+          <div className="mt-2 grid w-full grid-cols-2 gap-3 no-print">
+            <Button color="secondary" iconLeading={Printer} onClick={() => window.print()}>Print</Button>
             {can("members:write") && (
-              <button className="btn ghost" onClick={async () => {
-                if (!confirm("Generate a new QR code? The old one stops working.")) return;
-                setData(await api<MemberDetail>(`/members/${m.id}/regenerate-qr`, { body: {} }));
-              }}>Replace lost pass</button>
+              <Button color="secondary-destructive" iconLeading={RefreshCw05} onClick={async () => {
+                if (!(await confirm({ title: "Replace QR pass?", description: "The current pass stops working immediately.", confirmLabel: "Replace", destructive: true }))) return;
+                member.setData(await api<MemberDetail>(`/members/${m.id}/regenerate-qr`, { body: {} }));
+                toast.success("New QR pass generated");
+              }}>Replace</Button>
             )}
           </div>
         </div>
-      </Modal>
-      <p style={{ marginTop: "1.5rem" }}><Link href="/members">← All members</Link></p>
+      </AppModal>
     </>
   );
 }
 
 export default function Page() {
   return (
-    <Suspense fallback={<div className="empty">Loading…</div>}>
+    <Suspense fallback={<Skeleton className="h-64 rounded-xl" />}>
       <MemberPage />
     </Suspense>
   );

@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Alert, Field } from "@/components/ui";
+import { AuthLayout, FormError } from "@/components/app/auth-layout";
+import { Button } from "@/components/base/buttons/button";
+import { Input } from "@/components/base/input/input";
 import { useAuth } from "@/lib/auth";
 
 export default function LoginPage() {
@@ -23,30 +25,28 @@ export default function LoginPage() {
       router.replace("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign in failed");
-    } finally {
       setBusy(false);
     }
   }
 
   return (
-    <div className="auth-wrap">
-      <form className="card auth-card stack" onSubmit={submit}>
-        <div>
-          <h1>Sign in to Gymmy</h1>
-          <p className="muted">Gym staff and owners</p>
+    <AuthLayout title="Welcome back" subtitle="Sign in to your gym workspace.">
+      <form onSubmit={submit} className="flex flex-col gap-5">
+        <FormError message={error} />
+        <div className="flex flex-col gap-5">
+          <Input label="Email" type="email" autoComplete="email" placeholder="you@yourgym.com" isRequired value={email} onChange={setEmail} autoFocus />
+          <Input label="Password" type="password" autoComplete="current-password" placeholder="Your password" isRequired value={password} onChange={setPassword} />
         </div>
-        <Alert>{error}</Alert>
-        <Field label="Email">
-          <input type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
-        </Field>
-        <Field label="Password">
-          <input type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
-        </Field>
-        <button className="btn" disabled={busy} style={{ width: "100%", justifyContent: "center" }}>
-          {busy ? "Signing in…" : "Sign in"}
-        </button>
-        <p className="muted">New gym? <Link href="/signup">Create your gym workspace</Link></p>
+        <Button type="submit" size="lg" className="mt-1 w-full" isLoading={busy} showTextWhileLoading>
+          Sign in
+        </Button>
+        <p className="mt-3 text-center text-sm text-tertiary">
+          New gym?{" "}
+          <Link href="/signup" className="font-semibold text-brand-secondary hover:text-brand-secondary_hover">
+            Create your workspace
+          </Link>
+        </p>
       </form>
-    </div>
+    </AuthLayout>
   );
 }
