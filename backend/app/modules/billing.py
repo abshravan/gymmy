@@ -9,6 +9,7 @@ from decimal import Decimal
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
+from app.core.money import to_money
 from app.models import Organization, Payment, Subscription
 
 ZERO = Decimal("0.00")
@@ -50,7 +51,7 @@ def net_paid_by_subscription(db: Session, sub_ids: list[uuid.UUID]) -> dict[uuid
         .where(Payment.subscription_id.in_(sub_ids), Payment.status == "completed")
         .group_by(Payment.subscription_id)
     ).all()
-    return {sid: Decimal(total) for sid, total in rows}
+    return {sid: to_money(total) for sid, total in rows}
 
 
 @dataclass

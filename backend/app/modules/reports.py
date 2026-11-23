@@ -1,26 +1,28 @@
 import csv
 import io
 import uuid
+from collections import defaultdict
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Annotated
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import Date, and_, case, cast, func, select
+from sqlalchemy import and_, case, func, select
 from sqlalchemy.orm import Session
 
 from app.core.deps import DB, Tenant, require
 from app.core.errors import bad_request
+from app.core.money import to_money
 from app.core.permissions import P
 from app.core.timeutil import local_day_bounds_utc, today_in
 from app.models import Attendance, Member, Payment, Subscription
 
 router = APIRouter(tags=["dashboard & reports"])
 
-ZERO = Decimal("0")
-CENTS = Decimal("0.01")
+ZERO = Decimal("0.00")
 
 
 def _paid_subq(org_id):
@@ -38,10 +40,10 @@ def _active_on(org_id, day: date):
 
 def _net_collected(db: Session, org_id, start, end) -> Decimal:
     signed = case((Payment.kind == "refund", -Payment.amount), else_=Payment.amount)
-    return Decimal(db.scalar(
+    return to_money(db.scalar(
         select(func.coalesce(func.sum(signed), 0)).where(
             Payment.organization_id == org_id, Payment.status == "completed",
-            Payment.paid_at >= start, Payment.paid_at < end)) or 0).quantize(CENTS)
+            Payment.paid_at >= start, Payment.paid_at < end)))
 
 
 def _range(t: Tenant, date_from: date | None, date_to: date | None) -> tuple[date, date]:
@@ -54,8 +56,14 @@ def _range(t: Tenant, date_from: date | None, date_to: date | None) -> tuple[dat
     return df, dt
 
 
-def _local_date(col, tz: str):
-    return cast(func.timezone(tz, col), Date)
+def _by_local_day(rows, tz: str) -> dict[date, list]:
+    """Group (timestamp, *values) rows by calendar day in the gym's timezone. Done in
+    Python so it works the same on PostgreSQL and SQLite."""
+    zone = ZoneInfo(tz)
+    days: dict[date, list] = defaultdict(list)
+    for ts, *rest in rows:
+        days[ts.astimezone(zone).date()].append(rest)
+    return dict(sorted(days.items()))
 
 
 # ---------------------------------------------------------------- dashboard
@@ -106,7 +114,7 @@ def _expiring(db: Session, t: Tenant, start: date, end: date, limit: int | None 
         ExpiringItem(subscription_id=s.id, member_id=m.id, member_number=m.member_number,
                      member_name=f"{m.first_name} {m.last_name or ''}".strip(), phone=m.phone,
                      plan_name=s.plan_name, end_date=s.end_date,
-                     balance_due=max(s.price - Decimal(p), ZERO))
+                     balance_due=max(s.price - to_money(p), ZERO))
         for s, m, p in db.execute(stmt).all()
     ]
 
@@ -132,9 +140,9 @@ def dashboard(db: DB, t: Annotated[Tenant, Depends(require(P.DASHBOARD_READ))]):
         Attendance.check_in_at < day_end)) or 0
 
     paid = _paid_subq(org_id)
+    owed = Subscription.price - func.coalesce(paid.c.paid, 0)
     dues = db.scalar(
-        select(func.coalesce(func.sum(func.greatest(
-            Subscription.price - func.coalesce(paid.c.paid, 0), 0)), 0))
+        select(func.coalesce(func.sum(case((owed > 0, owed), else_=0)), 0))
         .outerjoin(paid, paid.c.sid == Subscription.id)
         .where(Subscription.organization_id == org_id, Subscription.status != "cancelled")
     )
@@ -144,7 +152,7 @@ def dashboard(db: DB, t: Annotated[Tenant, Depends(require(P.DASHBOARD_READ))]):
         total_members=total, new_members_this_month=new, checkins_today=checkins,
         collections_today=_net_collected(db, org_id, day_start, day_end),
         collections_this_month=_net_collected(db, org_id, month_start, day_end),
-        outstanding_dues=Decimal(dues or 0).quantize(CENTS), expiring_next_7_days=len(expiring),
+        outstanding_dues=to_money(dues), expiring_next_7_days=len(expiring),
         expiring_soon=expiring[:10],
     )
 
@@ -202,7 +210,7 @@ def dues_report(db: DB, t: Reports, format: str = Query("json", pattern="^(json|
     items = [DueItem(subscription_id=s.id, member_id=m.id, member_number=m.member_number,
                      member_name=f"{m.first_name} {m.last_name or ''}".strip(), phone=m.phone,
                      plan_name=s.plan_name, start_date=s.start_date, end_date=s.end_date,
-                     price=s.price, amount_paid=Decimal(pd), balance_due=s.price - Decimal(pd))
+                     price=s.price, amount_paid=to_money(pd), balance_due=s.price - to_money(pd))
              for s, m, pd in rows]
     if format == "csv":
         return _csv([i.model_dump(mode="json") for i in items], "outstanding-dues.csv")
@@ -230,12 +238,11 @@ def attendance_report(db: DB, t: Reports, date_from: date | None = None,
     start, end = local_day_bounds_utc(df, tz)[0], local_day_bounds_utc(dt, tz)[1]
     where = (Attendance.organization_id == t.org_id, Attendance.check_in_at >= start,
              Attendance.check_in_at < end)
-    day = _local_date(Attendance.check_in_at, tz).label("d")
-    rows = db.execute(select(day, func.count()).where(*where).group_by(day).order_by(day)).all()
+    days = _by_local_day(db.execute(select(Attendance.check_in_at).where(*where)).all(), tz)
     unique = db.scalar(select(func.count(func.distinct(Attendance.member_id))).where(*where))
-    return AttendanceReport(date_from=df, date_to=dt, total_checkins=sum(c for _, c in rows),
+    return AttendanceReport(date_from=df, date_to=dt, total_checkins=sum(len(v) for v in days.values()),
                             unique_members=unique or 0,
-                            by_day=[DayCount(date=d, count=c) for d, c in rows])
+                            by_day=[DayCount(date=d, count=len(v)) for d, v in days.items()])
 
 
 class MethodTotal(BaseModel):
@@ -275,15 +282,15 @@ def revenue_report(db: DB, t: Reports, date_from: date | None = None,
     cnt = func.count(case((Payment.kind == "payment", 1)))
     methods = db.execute(select(Payment.method, pay, ref).where(*where)
                          .group_by(Payment.method).order_by(Payment.method)).all()
-    day = _local_date(Payment.paid_at, tz).label("d")
-    days = db.execute(select(day, pay - ref).where(*where).group_by(day).order_by(day)).all()
+    signed = case((Payment.kind == "refund", -Payment.amount), else_=Payment.amount)
+    days = _by_local_day(db.execute(select(Payment.paid_at, signed).where(*where)).all(), tz)
     count = db.scalar(select(cnt).where(*where)) or 0
-    collected = sum((Decimal(p) for _, p, _ in methods), ZERO)
-    refunded = sum((Decimal(r) for _, _, r in methods), ZERO)
+    collected = sum((to_money(p) for _, p, _ in methods), ZERO)
+    refunded = sum((to_money(r) for _, _, r in methods), ZERO)
     return RevenueReport(
         date_from=df, date_to=dt, currency=t.org.currency, collected=collected,
         refunded=refunded, net=collected - refunded, payment_count=count,
-        by_method=[MethodTotal(method=m, collected=Decimal(p), refunded=Decimal(r),
-                               net=Decimal(p) - Decimal(r)) for m, p, r in methods],
-        by_day=[DayAmount(date=d, net=Decimal(n)) for d, n in days],
+        by_method=[MethodTotal(method=m, collected=to_money(p), refunded=to_money(r),
+                               net=to_money(p) - to_money(r)) for m, p, r in methods],
+        by_day=[DayAmount(date=d, net=sum((to_money(v) for (v,) in vals), ZERO)) for d, vals in days.items()],
     )

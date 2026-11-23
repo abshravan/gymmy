@@ -180,7 +180,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (loading || !me) {
     return (
       <div className="flex min-h-dvh items-center justify-center">
-        <motion.div animate={{ scale: [1, 1.08, 1] }} transition={{ repeat: Infinity, duration: 1.2 }}>
+        <motion.div animate={{ scale: [1, 1.08, 1] }} transition={{ type: "tween", repeat: Infinity, duration: 1.2 }}>
           <Logo />
         </motion.div>
       </div>

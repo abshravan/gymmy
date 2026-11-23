@@ -16,3 +16,8 @@ next-env.d.ts
 # Misc
 .DS_Store
 coverage/
+
+# Local SQLite databases (./scripts/setup.sh --sqlite)
+*.db
+*.db-shm
+*.db-wal

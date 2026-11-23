@@ -17,10 +17,18 @@ from app.main import app  # noqa: E402
 BACKEND = os.path.dirname(os.path.dirname(__file__))
 
 
+IS_SQLITE = engine.dialect.name == "sqlite"
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _schema():
-    with engine.begin() as conn:
-        conn.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public"))
+    if IS_SQLITE:
+        Base.metadata.drop_all(engine)
+        with engine.begin() as conn:
+            conn.execute(text("DROP TABLE IF EXISTS alembic_version"))
+    else:
+        with engine.begin() as conn:
+            conn.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public"))
     cfg = Config(os.path.join(BACKEND, "alembic.ini"))
     cfg.set_main_option("script_location", os.path.join(BACKEND, "alembic"))
     command.upgrade(cfg, "head")  # exercises the real migrations
@@ -30,9 +38,13 @@ def _schema():
 @pytest.fixture(autouse=True)
 def _clean():
     yield
-    tables = ", ".join(t.name for t in Base.metadata.sorted_tables)
     with engine.begin() as conn:
-        conn.execute(text(f"TRUNCATE {tables} CASCADE"))
+        if IS_SQLITE:
+            for table in reversed(Base.metadata.sorted_tables):
+                conn.execute(table.delete())
+        else:
+            tables = ", ".join(t.name for t in Base.metadata.sorted_tables)
+            conn.execute(text(f"TRUNCATE {tables} CASCADE"))
 
 
 @pytest.fixture

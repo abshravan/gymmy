@@ -107,7 +107,7 @@ function DemoBarInner() {
           aria-hidden="true"
           className="pointer-events-none absolute -top-20 right-10 size-64 rounded-full bg-brand-solid opacity-40 blur-3xl"
           animate={{ x: [0, -60, 0] }}
-          transition={{ duration: 12, repeat: Infinity, ease: "easeInOut" }}
+          transition={{ type: "tween", duration: 12, repeat: Infinity, ease: "easeInOut" }}
         />
         <div className="relative flex flex-col gap-3 px-4 py-3 md:flex-row md:items-center md:px-6">
           <div className="flex min-w-0 flex-1 items-center gap-3">

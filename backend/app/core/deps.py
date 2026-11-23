@@ -14,7 +14,10 @@ from app.models import Organization, User
 
 _bearer = HTTPBearer(auto_error=False)
 
-DB = Annotated[Session, Depends(get_db)]
+# scope="function": commit (or roll back) as soon as the endpoint returns, *before* the
+# response is sent. With the default request scope FastAPI sends the response first, so a
+# client could act on data that isn't committed yet, or be told a failed write succeeded.
+DB = Annotated[Session, Depends(get_db, scope="function")]
 
 
 def _unauthorized(detail: str = "Not authenticated") -> HTTPException:

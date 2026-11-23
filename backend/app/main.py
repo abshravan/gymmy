@@ -68,7 +68,7 @@ async def database_unavailable(_: Request, exc: OperationalError):
         status_code=503,
         content={
             "detail": "Can't connect to the database. "
-            "Check that PostgreSQL is running and DATABASE_URL is correct."
+            "Check that the database is running and DATABASE_URL is correct."
         },
     )
 

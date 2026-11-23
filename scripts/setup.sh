@@ -4,6 +4,7 @@
 #   ./scripts/setup.sh            set everything up
 #   ./scripts/setup.sh --seed     ...and load a demo gym you can sign in to
 #   ./scripts/setup.sh --test     ...and run the backend test suite
+#   ./scripts/setup.sh --sqlite   use a local SQLite file instead of PostgreSQL (nothing to install)
 #
 # Safe to re-run. Override defaults with environment variables:
 #   DB_HOST=127.0.0.1 DB_PORT=5432 DB_NAME=gymmy DB_USER=gymmy DB_PASSWORD=gymmy
@@ -25,13 +26,14 @@ API_PORT="${API_PORT:-8000}"
 WEB_PORT="${WEB_PORT:-3000}"
 PG_ADMIN_USER="${PG_ADMIN_USER:-postgres}"
 
-SEED=0; RUN_TESTS=0; SKIP_FRONTEND=0
+SEED=0; RUN_TESTS=0; SKIP_FRONTEND=0; USE_SQLITE=0
 for arg in "$@"; do
   case "$arg" in
     --seed) SEED=1 ;;
     --test) RUN_TESTS=1 ;;
     --skip-frontend) SKIP_FRONTEND=1 ;;
-    -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --sqlite) USE_SQLITE=1 ;;
+    -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Unknown option: $arg (try --help)"; exit 2 ;;
   esac
 done
@@ -72,7 +74,13 @@ if [ "$SKIP_FRONTEND" = 0 ]; then
   ok "Node $(node -v), npm $(npm -v)"
 fi
 
-command -v psql >/dev/null 2>&1 || die "PostgreSQL client (psql) not found. $(pkg_hint postgres)"
+if [ "$USE_SQLITE" = 1 ]; then
+  DATABASE_URL="sqlite:///$BACKEND/gymmy.db"
+  TEST_DATABASE_URL="sqlite:///$BACKEND/gymmy_test.db"
+  ok "SQLite mode: data lives in backend/gymmy.db (no database server needed)"
+else
+command -v psql >/dev/null 2>&1 || die "PostgreSQL client (psql) not found. $(pkg_hint postgres)
+  Or skip PostgreSQL entirely:  ./scripts/setup.sh --sqlite   (or ./scripts/demo.sh)"
 ok "$(psql --version)"
 
 # --------------------------------------------------------------------------- postgres
@@ -163,6 +171,7 @@ fi
 
 DATABASE_URL="postgresql+psycopg://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_NAME"
 TEST_DATABASE_URL="postgresql+psycopg://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_TEST_NAME"
+fi  # end PostgreSQL setup
 
 # --------------------------------------------------------------------------- backend
 step "Backend (FastAPI)"
@@ -175,13 +184,18 @@ if [ ! -x .venv/bin/python ]; then
   else "$PYTHON" -m venv .venv || die "Couldn't create a virtualenv. $(pkg_hint python)"; fi
   ok "created backend/.venv"
 fi
-if command -v uv >/dev/null 2>&1; then
-  uv pip install -q --python .venv/bin/python -e ".[dev]"
+if [ -f .venv/.installed ] && [ .venv/.installed -nt pyproject.toml ]; then
+  ok "Python packages up to date"
 else
-  .venv/bin/python -m pip install -q --upgrade pip
-  .venv/bin/python -m pip install -q -e ".[dev]"
+  if command -v uv >/dev/null 2>&1; then
+    uv pip install -q --python .venv/bin/python -e ".[dev]"
+  else
+    .venv/bin/python -m pip install -q --upgrade pip
+    .venv/bin/python -m pip install -q -e ".[dev]"
+  fi
+  touch .venv/.installed
+  ok "Python packages installed"
 fi
-ok "Python packages installed"
 
 set_env() {  # set_env FILE KEY VALUE — add or replace KEY=VALUE
   local file="$1" key="$2" value="$3"
@@ -204,7 +218,7 @@ if [ ! -f .env ]; then
 fi
 set_env .env DATABASE_URL "$DATABASE_URL"
 set_env .env CORS_ORIGINS "http://localhost:$WEB_PORT,http://127.0.0.1:$WEB_PORT"
-ok "backend/.env points at $DB_NAME on $DB_HOST:$DB_PORT"
+if [ "$USE_SQLITE" = 1 ]; then ok "backend/.env uses SQLite (backend/gymmy.db)"; else ok "backend/.env points at $DB_NAME on $DB_HOST:$DB_PORT"; fi
 
 if ! out="$(.venv/bin/alembic upgrade head 2>&1)"; then
   echo "$out"; die "Database migration failed"
@@ -222,8 +236,12 @@ fi
 if [ "$SKIP_FRONTEND" = 0 ]; then
   step "Frontend (Next.js)"
   cd "$FRONTEND"
-  if [ -f package-lock.json ]; then npm ci --no-audit --no-fund --loglevel=error; else npm install --no-audit --no-fund --loglevel=error; fi
-  ok "npm packages installed"
+  if [ -f node_modules/.package-lock.json ] && [ node_modules/.package-lock.json -nt package-lock.json ]; then
+    ok "npm packages up to date"
+  else
+    if [ -f package-lock.json ]; then npm ci --no-audit --no-fund --loglevel=error; else npm install --no-audit --no-fund --loglevel=error; fi
+    ok "npm packages installed"
+  fi
   set_env .env.local API_ORIGIN "http://127.0.0.1:$API_PORT"
   ok "frontend/.env.local proxies /api/v1 to http://127.0.0.1:$API_PORT"
 fi

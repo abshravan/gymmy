@@ -50,7 +50,19 @@ production if you don't want public sandboxes.
 
 ## Run it locally
 
-### Without Docker (recommended for development)
+### Quickest: just try it (no PostgreSQL, no Docker)
+
+Needs only Python 3.12+ and Node.js 20+.
+
+```bash
+./scripts/demo.sh
+```
+
+Open http://localhost:3000 and click **View demo** (or sign in as `owner@demo.gym` / `demo-pass-1`).
+Data lives in a local SQLite file, `backend/gymmy.db`; delete it to start over. SQLite is for trying
+the app and local development; use PostgreSQL for real use (below).
+
+### With PostgreSQL (recommended for development)
 
 Needs Python 3.12+, Node.js 20+ and PostgreSQL 14+ installed and running (Linux, macOS or WSL).
 
@@ -68,7 +80,7 @@ Open http://localhost:3000 and click **View demo**, or sign in as `owner@demo.gy
 databases (it never changes your `postgres` password); sets up `backend/.venv`, writes
 `backend/.env` with a random secret and runs migrations; installs the frontend and writes
 `frontend/.env.local`. It's safe to re-run. Options: `--seed` loads the demo gym, `--test` runs the
-backend tests, `--skip-frontend`. Override defaults with `DB_HOST`, `DB_PORT`, `DB_USER`,
+backend tests, `--sqlite` uses SQLite instead of PostgreSQL, `--skip-frontend`. Override defaults with `DB_HOST`, `DB_PORT`, `DB_USER`,
 `DB_PASSWORD`, `DB_NAME`, `API_PORT`, `WEB_PORT`.
 
 To create the database user, the script needs admin access to PostgreSQL once. It tries, in order:
@@ -101,6 +113,9 @@ For production, set `CORS_ORIGINS` to your real frontend URL and `CORS_ORIGIN_RE
   login. Run `./scripts/setup.sh`; it creates its own `gymmy` user and fixes `backend/.env`.
 - **"Can't reach the Gymmy API" in the app**: the backend isn't running, or not on the port in
   `frontend/.env.local`. Start it with `./scripts/dev.sh`.
+- **Don't want to install PostgreSQL?** `./scripts/demo.sh` runs everything on SQLite.
+  To switch an existing setup back to PostgreSQL later, run `./scripts/setup.sh` (it rewrites
+  `DATABASE_URL` in `backend/.env`).
 - **Port already in use**: `API_PORT=8001 WEB_PORT=3001 ./scripts/dev.sh`.
 
 API docs: http://127.0.0.1:8000/docs

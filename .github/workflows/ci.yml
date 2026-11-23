@@ -29,6 +29,10 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: ruff check app tests alembic
       - run: pytest -q
+      - name: pytest (SQLite, used by scripts/demo.sh)
+        run: pytest -q
+        env:
+          DATABASE_URL: sqlite:///./ci-test.db
 
   frontend:
     runs-on: ubuntu-latest

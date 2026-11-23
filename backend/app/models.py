@@ -13,7 +13,6 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Date,
-    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -21,11 +20,13 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
+from app.core.types import UTCDateTime
 
 Money = Numeric(12, 2)
 
@@ -39,7 +40,7 @@ def _org_fk() -> Mapped[uuid.UUID]:
 
 
 def _created() -> Mapped[datetime]:
-    return mapped_column(DateTime(timezone=True), server_default=func.now())
+    return mapped_column(UTCDateTime(), server_default=func.now())
 
 
 class Organization(Base):
@@ -60,8 +61,8 @@ class Organization(Base):
     member_seq: Mapped[int] = mapped_column(Integer, default=0)
     receipt_seq: Mapped[int] = mapped_column(Integer, default=0)
     # Sandbox gyms created by "Explore the demo"; deleted after demo_expires_at.
-    is_demo: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
-    demo_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    is_demo: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    demo_expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     created_at: Mapped[datetime] = _created()
 
 
@@ -101,8 +102,8 @@ class RefreshToken(Base):
     id: Mapped[uuid.UUID] = _id()
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     created_at: Mapped[datetime] = _created()
 
 
@@ -228,7 +229,7 @@ class Payment(Base):
     notes: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), default="completed")
     idempotency_key: Mapped[str | None] = mapped_column(String(100))
-    paid_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    paid_at: Mapped[datetime] = mapped_column(UTCDateTime(), server_default=func.now())
     recorded_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = _created()
 
@@ -260,8 +261,8 @@ class Attendance(Base):
     )
     branch_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("branches.id"))
     subscription_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("subscriptions.id"))
-    check_in_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    check_out_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    check_in_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    check_out_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     method: Mapped[str] = mapped_column(String(20))  # manual | qr | phone | member_number
     override_reason: Mapped[str | None] = mapped_column(Text)
     recorded_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))

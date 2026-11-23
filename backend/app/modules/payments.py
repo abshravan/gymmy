@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.audit import audit
 from app.core.deps import DB, Tenant, require
 from app.core.errors import bad_request, conflict, not_found
+from app.core.money import to_money
 from app.core.pagination import Page, PageParams, paginate
 from app.core.permissions import P
 from app.core.timeutil import local_day_bounds_utc, utcnow
@@ -199,7 +200,7 @@ def refund_payment(
         select(func.coalesce(func.sum(Payment.amount), 0)).where(
             Payment.refund_of_id == original.id, Payment.status == "completed")
     )
-    refundable = original.amount - Decimal(refunded)
+    refundable = original.amount - to_money(refunded)
     amount = body.amount or refundable
     if refundable <= 0:
         raise conflict("This payment has already been fully refunded")

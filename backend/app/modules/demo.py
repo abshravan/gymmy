@@ -128,7 +128,9 @@ class DemoIn(BaseModel):
 
 def _purge_expired(db: Session) -> None:
     db.execute(
-        delete(Organization).where(Organization.is_demo.is_(True), Organization.demo_expires_at < func.now())
+        delete(Organization).where(
+            Organization.is_demo.is_(True), Organization.demo_expires_at < datetime.now(UTC)
+        )
     )
 
 

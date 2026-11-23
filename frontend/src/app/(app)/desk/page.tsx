@@ -137,7 +137,8 @@ export default function FrontDesk() {
                 initial={{ opacity: 0, y: 16, scale: 0.97 }}
                 animate={result.allowed ? { opacity: 1, y: 0, scale: 1 } : { opacity: 1, y: 0, scale: 1, x: [0, -8, 7, -4, 2, 0] }}
                 exit={{ opacity: 0, y: -8, scale: 0.98, transition: { duration: 0.18 } }}
-                transition={{ type: "spring", stiffness: 380, damping: 26 }}
+                // Springs only take two keyframes, so the refusal shake runs as a timed tween.
+                transition={{ type: "spring", stiffness: 380, damping: 26, x: { type: "tween", duration: 0.45, ease: "easeOut" } }}
                 className={cx(
                   "relative overflow-hidden rounded-2xl p-5 ring-1 ring-inset md:p-6",
                   result.allowed ? "bg-success-primary text-fg-success-primary ring-success_subtle" : "bg-error-primary text-fg-error-primary ring-error_subtle",

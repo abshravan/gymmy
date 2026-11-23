@@ -32,13 +32,13 @@ export function AuthLayout({ title, subtitle, children }: { title: string; subti
           aria-hidden="true"
           className="absolute -top-32 -right-32 size-[480px] rounded-full bg-brand-solid opacity-40 blur-3xl"
           animate={{ x: [0, -40, 0], y: [0, 30, 0] }}
-          transition={{ duration: 14, repeat: Infinity, ease: "easeInOut" }}
+          transition={{ type: "tween", duration: 14, repeat: Infinity, ease: "easeInOut" }}
         />
         <motion.div
           aria-hidden="true"
           className="absolute -bottom-40 -left-24 size-[420px] rounded-full bg-brand-500 opacity-30 blur-3xl"
           animate={{ x: [0, 50, 0], y: [0, -20, 0] }}
-          transition={{ duration: 18, repeat: Infinity, ease: "easeInOut" }}
+          transition={{ type: "tween", duration: 18, repeat: Infinity, ease: "easeInOut" }}
         />
         <div className="relative flex h-full flex-col justify-end p-16">
           <motion.h2
@@ -84,7 +84,7 @@ export function FormError({ message }: { message: string | null }) {
           <motion.div
             key={message}
             animate={{ x: [6, -4, 2, 0] }}
-            transition={{ duration: 0.35 }}
+            transition={{ type: "tween", duration: 0.35 }}
             className="rounded-lg bg-error-primary px-4 py-3 text-sm font-medium text-error-primary ring-1 ring-error_subtle ring-inset"
             role="alert"
           >
