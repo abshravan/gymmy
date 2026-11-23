@@ -50,39 +50,60 @@ production if you don't want public sandboxes.
 
 ## Run it locally
 
-With Docker:
+### Without Docker (recommended for development)
+
+Needs Python 3.12+, Node.js 20+ and PostgreSQL 14+ installed and running (Linux, macOS or WSL).
+
+```bash
+./scripts/setup.sh --seed
+```
+
+```bash
+./scripts/dev.sh
+```
+
+Open http://localhost:3000 and click **View demo**, or sign in as `owner@demo.gym` / `demo-pass-1`.
+
+`setup.sh` checks your tools; creates a `gymmy` database user and the `gymmy` + `gymmy_test`
+databases (it never changes your `postgres` password); sets up `backend/.venv`, writes
+`backend/.env` with a random secret and runs migrations; installs the frontend and writes
+`frontend/.env.local`. It's safe to re-run. Options: `--seed` loads the demo gym, `--test` runs the
+backend tests, `--skip-frontend`. Override defaults with `DB_HOST`, `DB_PORT`, `DB_USER`,
+`DB_PASSWORD`, `DB_NAME`, `API_PORT`, `WEB_PORT`.
+
+To create the database user, the script needs admin access to PostgreSQL once. It tries, in order:
+your own OS user (Homebrew on macOS), `PG_ADMIN_USER`/`PG_ADMIN_PASSWORD` if you set them, then
+`sudo -u postgres` (Ubuntu/Debian default). If none work it tells you what to set.
+
+`dev.sh` runs the API on 127.0.0.1:8000 and the web app on :3000 with live reload; Ctrl+C stops both.
+
+### With Docker
 
 ```bash
 docker compose up --build
 ```
 
-Then open http://localhost:3000 and create a gym, or load demo data:
-
 ```bash
 docker compose exec api python -m app.cli seed-demo
 ```
 
-Demo logins: `owner@demo.gym`, `manager@demo.gym`, `receptionist@demo.gym` and `trainer@demo.gym`, password `demo-pass-1`. (Or just click **View demo** on the login page.)
+### How the frontend reaches the API (and CORS)
 
-Without Docker (needs Python 3.12+, Node 22, PostgreSQL 16):
+The web app calls `/api/v1/...` on its own origin and Next.js forwards it to the API
+(`API_ORIGIN`, default `http://127.0.0.1:8000`), so the browser never makes a cross-origin
+request. If you'd rather call the API directly, set `NEXT_PUBLIC_API_URL=http://127.0.0.1:8000`;
+the API allows any `localhost` / `127.0.0.1` port in development and the origins in `CORS_ORIGINS`.
+For production, set `CORS_ORIGINS` to your real frontend URL and `CORS_ORIGIN_REGEX=` (empty).
 
-```bash
-cd backend && python -m venv .venv && .venv/bin/pip install -e ".[dev]"
-```
+### Troubleshooting
 
-```bash
-cd backend && DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/gymmy .venv/bin/alembic upgrade head
-```
+- **`password authentication failed for user "postgres"`**: your `DATABASE_URL` has the wrong
+  login. Run `./scripts/setup.sh`; it creates its own `gymmy` user and fixes `backend/.env`.
+- **"Can't reach the Gymmy API" in the app**: the backend isn't running, or not on the port in
+  `frontend/.env.local`. Start it with `./scripts/dev.sh`.
+- **Port already in use**: `API_PORT=8001 WEB_PORT=3001 ./scripts/dev.sh`.
 
-```bash
-cd backend && DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/gymmy .venv/bin/uvicorn app.main:app --reload
-```
-
-```bash
-cd frontend && npm install && npm run dev
-```
-
-API docs: http://localhost:8000/docs
+API docs: http://127.0.0.1:8000/docs
 
 ## Tests
 
@@ -90,8 +111,10 @@ Backend tests run against a real PostgreSQL database (`gymmy_test`), applying th
 migrations first:
 
 ```bash
-cd backend && DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/gymmy_test .venv/bin/pytest
+./scripts/setup.sh --test
 ```
+
+or directly: `cd backend && DATABASE_URL=postgresql+psycopg://gymmy:gymmy@127.0.0.1:5432/gymmy_test .venv/bin/pytest`
 
 They cover the testing checklist in the guide: cross-gym access, duplicate warnings,
 plan end dates, freeze/renew/cancel history, blocked check-ins, duplicate check-ins,

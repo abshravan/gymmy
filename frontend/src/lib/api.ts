@@ -1,4 +1,6 @@
-const BASE = "/api/v1";
+// Same-origin by default (proxied by Next, see next.config.mjs). Set NEXT_PUBLIC_API_URL
+// to call the API directly instead; the backend's CORS settings must then allow this origin.
+const BASE = `${(process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "")}/api/v1`;
 const ACCESS = "gymmy.access";
 const REFRESH = "gymmy.refresh";
 
@@ -100,11 +102,17 @@ export async function api<T>(
   if (opts.body !== undefined) headers["Content-Type"] = "application/json";
   const at = tokens.access;
   if (at) headers.Authorization = `Bearer ${at}`;
-  const res = await fetch(`${BASE}${path}`, {
-    method: opts.method ?? (opts.body !== undefined ? "POST" : "GET"),
-    headers,
-    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      method: opts.method ?? (opts.body !== undefined ? "POST" : "GET"),
+      headers,
+      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    });
+  } catch {
+    // fetch only throws for network failures (server down, blocked by CORS, offline).
+    throw new ApiError(0, "Can't reach the Gymmy API. Make sure the backend is running.");
+  }
   if (res.status === 401 && retry && !path.startsWith("/auth/login")) {
     if (await tryRefresh()) return api<T>(path, opts, false);
     tokens.clear();
@@ -114,17 +122,24 @@ export async function api<T>(
   }
   if (res.status === 204) return undefined as T;
   const body = res.headers.get("content-type")?.includes("json") ? await res.json() : await res.text();
-  if (!res.ok) throw new ApiError(res.status, errorMessage(body, res.status), body);
+  if (!res.ok) {
+    // A non-JSON 5xx comes from the Next proxy, not the API: the backend isn't reachable.
+    if (res.status >= 500 && typeof body === "string") {
+      throw new ApiError(res.status, "Can't reach the Gymmy API. Make sure the backend is running.", body);
+    }
+    throw new ApiError(res.status, errorMessage(body, res.status), body);
+  }
   return body as T;
 }
 
-export async function download(path: string, filename: string) {
+export async function download(path: string, fallbackName: string) {
   const res = await fetch(`${BASE}${path}`, {
     headers: tokens.access ? { Authorization: `Bearer ${tokens.access}` } : {},
   });
   if (!res.ok) throw new ApiError(res.status, "Download failed");
+  const named = /filename="?([^";]+)"?/i.exec(res.headers.get("content-disposition") ?? "")?.[1];
   const url = URL.createObjectURL(await res.blob());
-  const a = Object.assign(document.createElement("a"), { href: url, download: filename });
+  const a = Object.assign(document.createElement("a"), { href: url, download: named ?? fallbackName });
   a.click();
   URL.revokeObjectURL(url);
 }
