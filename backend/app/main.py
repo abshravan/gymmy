@@ -1,5 +1,9 @@
-from fastapi import APIRouter, FastAPI
+import logging
+
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy.exc import OperationalError
 
 from app.core.config import get_settings
 from app.modules import (
@@ -29,6 +33,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+log = logging.getLogger("gymmy")
+
+
+@app.exception_handler(OperationalError)
+async def database_unavailable(_: Request, exc: OperationalError):
+    """Can't reach or log in to PostgreSQL: answer 503 with a readable message
+    instead of a 500 and a long traceback."""
+    log.error("Database unavailable: %s", exc.orig)
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": "Can't connect to the database. "
+            "Check that PostgreSQL is running and DATABASE_URL is correct."
+        },
+    )
+
 
 api = APIRouter(prefix="/api/v1")
 for module in (auth, demo, organizations, staff, members, plans, subscriptions, payments,
